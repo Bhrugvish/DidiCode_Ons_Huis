@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ons Huis">
+<title>🌷 Ons Huis</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'DM Sans',sans-serif;background:linear-gradient(160deg,#FDF6ED 0%,#F0F4FF 100%);min-height:100vh;color:#1A1A2E;-webkit-tap-highlight-color:transparent;}
+input,select,button{font-family:'DM Sans',sans-serif;}
+::-webkit-scrollbar{width:3px;height:3px;}
+::-webkit-scrollbar-thumb{background:#DDD0C0;border-radius:99px;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes toastPop{0%{opacity:0;transform:translateX(-50%) translateY(8px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}85%{opacity:1}100%{opacity:0}}
+@keyframes spin{to{transform:rotate(360deg)}}
+.irow{transition:all .18s;cursor:pointer;border-left:3px solid transparent;}
+.irow:hover{transform:translateX(2px);border-left-color:#E8650A;}
+.irow:active{opacity:.7;}
+.pbadge{transition:all .15s;cursor:pointer;user-select:none;}
+.pbadge:active{transform:scale(.9);}
+.drawer{animation:slideUp .25s ease;}
+.spin{animation:spin .8s linear infinite;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ═══════════════════════════════════════════════════
+// ONS HUIS — Firebase Realtime Database backend
+// Himadri & Nilay · Nederland 🌷
+// ═══════════════════════════════════════════════════
+
+const FIREBASE_URL = "https://ons-huis-7ab97-default-rtdb.europe-west1.firebasedatabase.app/";
+const DB_PATH      = "/ohchecklist.json";
+const NAME_KEY     = 'oh_name';
+const LOCAL_KEY    = 'oh_local';
+const POLL_MS      = 4000;
+
+const LS = {
+  get: k=>{try{return JSON.parse(localStorage.getItem(k))}catch{return null}},
+  set: (k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}},
+  del: k=>{try{localStorage.removeItem(k)}catch{}},
+};
+
+const uid = ()=>Math.random().toString(36).slice(2,9);
+const cp  = x=>JSON.parse(JSON.stringify(x));
+const AVS = ['#FF6B35','#003DA5','#7C3AED','#059669','#DB2777','#D97706'];
+const avc = n=>AVS[Math.abs([...n].reduce((a,c)=>a+c.charCodeAt(0),0))%AVS.length];
+const avi = n=>n.trim().split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+const PRI = ['high','medium','low'];
+const PCFG={
+  high:  {label:'Essential',bg:'#FFF0DC',color:'#C05400',border:'#FFBB77',dot:'🔴'},
+  medium:{label:'Important',bg:'#EEF3FF',color:'#1A4FA0',border:'#AAC0E8',dot:'🟡'},
+  low:   {label:'Later',    bg:'#F5F5F0',color:'#8A7B6A',border:'#D5CCBF',dot:'⚪'},
+};
+const SCFG={
+  india: {label:'🇮🇳 India',bg:'#FFF0DC',color:'#C05400'},
+  nl:    {label:'🇳🇱 NL',   bg:'#DDEAFF',color:'#0C2D6B'},
+  either:{label:'✦ Either',bg:'#E8F5E9',color:'#1B6B35'},
+};
+
+// ── Default data ─────────────────────────────────
+function makeDefault(){
+  const raw=[
+    {zone:'🛋️ Living Room',items:[
+      {n:'Sofa / couch',s:'nl',p:'high'},{n:'Coffee table',s:'nl',p:'high'},
+      {n:'Floor lamp',s:'nl',p:'high'},{n:'TV + stand / mount',s:'nl',p:'high'},
+      {n:'Curtains / blinds',s:'nl',p:'high'},{n:'Wall clock',s:'either',p:'medium'},
+      {n:'Bookshelf',s:'nl',p:'medium'},{n:'Area rug',s:'nl',p:'medium'},
+      {n:'Decorative items',s:'india',p:'low'},{n:'Indoor plants',s:'nl',p:'low'},
+      {n:'Photo frames (family)',s:'india',p:'low'},
+    ]},
+    {zone:'🛏️ Bedroom',items:[
+      {n:'Bed frame',s:'nl',p:'high'},{n:'Mattress',s:'nl',p:'high'},
+      {n:'Pillows (2–4)',s:'nl',p:'high'},{n:'Duvet / quilt (Dutch winters!)',s:'nl',p:'high'},
+      {n:'Duvet cover & pillow cases (2 sets)',s:'india',p:'high'},
+      {n:'Bed sheets (2 sets)',s:'india',p:'high'},
+      {n:'Wardrobe / clothes storage',s:'nl',p:'high'},
+      {n:'Bedside tables + lamps',s:'nl',p:'high'},{n:'Blackout curtains',s:'nl',p:'high'},
+      {n:'Hangers (20+)',s:'nl',p:'high'},{n:'Laundry basket',s:'nl',p:'high'},
+      {n:'Full-length mirror',s:'nl',p:'medium'},{n:'Mattress protector',s:'nl',p:'medium'},
+      {n:'Extra blanket / throw',s:'india',p:'medium'},{n:'Shoe rack',s:'nl',p:'medium'},
+    ]},
+    {zone:'🍳 Kitchen',items:[
+      {n:'Pressure cooker',s:'india',p:'high'},{n:'Tawa (flat pan)',s:'india',p:'high'},
+      {n:'Kadai / wok',s:'india',p:'high'},{n:'Non-stick frying pan',s:'nl',p:'high'},
+      {n:'Saucepan (1–2)',s:'nl',p:'high'},{n:'Plates, bowls & cups (6 sets)',s:'nl',p:'high'},
+      {n:'Cutlery set',s:'nl',p:'high'},{n:'Masala dabba (spice box)',s:'india',p:'high'},
+      {n:'Key Indian spices & groceries',s:'india',p:'high'},
+      {n:'Electric kettle',s:'nl',p:'high'},{n:'Toaster',s:'nl',p:'high'},
+      {n:'Microwave',s:'nl',p:'high'},{n:'Knife set + chopping boards (×2)',s:'nl',p:'high'},
+      {n:'Ladle, spatula, peeler, grater',s:'nl',p:'high'},
+      {n:'Storage containers / dabbas',s:'india',p:'high'},
+      {n:'Mixer / grinder (check EU voltage)',s:'india',p:'high'},
+      {n:'Dish soap & scrubber',s:'nl',p:'high'},
+      {n:'Kitchen towels & paper rolls',s:'nl',p:'high'},
+      {n:'Trash bins (wet + dry)',s:'nl',p:'high'},
+      {n:'Refrigerator (if not provided)',s:'nl',p:'high'},
+      {n:'Washing machine (if not provided)',s:'nl',p:'high'},
+      {n:'Oven / OTG',s:'nl',p:'medium'},{n:'Dish rack / drying mat',s:'nl',p:'medium'},
+      {n:'Air fryer',s:'nl',p:'low'},
+    ]},
+    {zone:'🚿 Bathroom',items:[
+      {n:'Bath towels (2 sets each)',s:'india',p:'high'},{n:'Hand towels (2 sets)',s:'india',p:'high'},
+      {n:'Shower curtain + rod',s:'nl',p:'high'},{n:'Bath mat / anti-slip mat',s:'nl',p:'high'},
+      {n:'Toiletries (soap, shampoo, conditioner)',s:'india',p:'high'},
+      {n:'Toothbrushes & toothpaste',s:'india',p:'high'},
+      {n:'Shaving / grooming kit',s:'india',p:'high'},
+      {n:'Toilet brush & holder',s:'nl',p:'high'},{n:'Bathroom dustbin',s:'nl',p:'high'},
+      {n:'Jet spray / bum gun',s:'nl',p:'high'},{n:'Hair dryer',s:'either',p:'high'},
+      {n:'Toilet paper (stock up!)',s:'nl',p:'high'},
+      {n:'Feminine hygiene products',s:'india',p:'high'},
+      {n:'Shower caddy / organiser',s:'nl',p:'medium'},
+    ]},
+    {zone:'🧺 Laundry & Cleaning',items:[
+      {n:'Laundry detergent',s:'nl',p:'high'},{n:'Fabric softener',s:'nl',p:'high'},
+      {n:'Mop & bucket',s:'nl',p:'high'},{n:'Broom / dustpan',s:'nl',p:'high'},
+      {n:'Vacuum cleaner',s:'nl',p:'high'},{n:'All-purpose cleaning spray',s:'nl',p:'high'},
+      {n:'Ironing board + iron',s:'nl',p:'high'},
+      {n:'Clothes drying rack',s:'nl',p:'high'},{n:'Rubber gloves',s:'nl',p:'medium'},
+    ]},
+    {zone:'🔌 Utilities',items:[
+      {n:'EU Type-F plug adapters (multiple)',s:'india',p:'high'},
+      {n:'Extension cords (EU standard)',s:'nl',p:'high'},
+      {n:'Power strip with surge protection',s:'nl',p:'high'},
+      {n:'First aid kit',s:'india',p:'high'},{n:'Basic medicines',s:'india',p:'high'},
+      {n:'Umbrella(s)',s:'nl',p:'high'},{n:'Doormat',s:'nl',p:'high'},
+      {n:'Basic tool kit',s:'nl',p:'high'},{n:'Smoke detector',s:'nl',p:'high'},
+      {n:'Spare light bulbs (LED)',s:'nl',p:'medium'},
+    ]},
+    {zone:'📦 Documents',items:[
+      {n:'Document folder / organiser',s:'india',p:'high'},
+      {n:'Passport & visa copies (laminated)',s:'india',p:'high'},
+      {n:'Degree & work experience letters',s:'india',p:'high'},
+      {n:'Bank & financial documents',s:'india',p:'high'},
+      {n:'Passport-size photos (10+)',s:'india',p:'high'},
+      {n:'BSN registration documents',s:'nl',p:'high'},
+      {n:'Health insurance documents',s:'nl',p:'high'},
+      {n:'Rental agreement / housing docs',s:'nl',p:'high'},
+    ]},
+    {zone:'🍽️ Dining',items:[
+      {n:'Dining table & chairs',s:'nl',p:'medium'},
+      {n:'Table mats / placemats',s:'either',p:'medium'},
+      {n:'Serving bowls & spoons',s:'india',p:'medium'},
+      {n:'Water bottles / jugs',s:'either',p:'high'},
+      {n:'Thermos / flask (for chai!)',s:'india',p:'medium'},
+    ]},
+    {zone:'🚲 Transport & Outdoors',items:[
+      {n:'Bicycle(s) — essential in NL!',s:'nl',p:'high'},
+      {n:'Bicycle lock',s:'nl',p:'high'},{n:'Bicycle rain poncho',s:'nl',p:'high'},
+      {n:'OV-chipkaart (public transport card)',s:'nl',p:'high'},
+      {n:'Warm winter jacket',s:'either',p:'high'},{n:'Waterproof shoes / boots',s:'either',p:'high'},
+      {n:'Bicycle helmet',s:'nl',p:'medium'},
+    ]},
+    {zone:'💻 Work & Study',items:[
+      {n:'Internet router',s:'nl',p:'high'},
+      {n:'Study desk & chair',s:'nl',p:'medium'},{n:'Desk lamp',s:'nl',p:'medium'},
+      {n:'Laptop stand + keyboard & mouse',s:'either',p:'medium'},
+    ]},
+    {zone:'🎁 Nice-to-Have',items:[
+      {n:'Smart home speaker',s:'nl',p:'low'},{n:'Wall art / posters',s:'either',p:'low'},
+      {n:'Candles & diffuser',s:'either',p:'low'},
+      {n:'Picnic blanket (Dutch summers!)',s:'nl',p:'low'},
+      {n:'Board games / cards',s:'either',p:'low'},
+      {n:'Dutch phrasebook / resources',s:'either',p:'medium'},
+    ]},
+  ];
+  return raw.map((z,zi)=>({
+    zone:z.zone,
+    items:z.items.map((it,ii)=>({name:it.n,source:it.s,priority:it.p,done:false,id:`d${zi}-${ii}`,updatedAt:0}))
+  }));
+}
+
+// ── Firebase REST API (no SDK needed) ────────────────
+async function fbRead(){
+  const r=await fetch(FIREBASE_URL+DB_PATH);
+  if(!r.ok) throw new Error('Read failed: '+r.status);
+  return await r.json();
+}
+async function fbWrite(data){
+  const r=await fetch(FIREBASE_URL+DB_PATH,{
+    method:'PUT',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(data),
+  });
+  if(!r.ok) throw new Error('Write failed: '+r.status);
+}
+
+// ── State ─────────────────────────────────────────────
+let S={
+  zones:null,deleted:[],
+  myName:LS.get(NAME_KEY)||'',
+  filter:'all',zoneFil:'all',
+  active:null,showAdd:null,
+  sync:'loading',savedAt:null,
+  toast:null,_tt:null,
+};
+let editSt={zi:0,ii:0,name:'',pri:'high',src:'nl',tzi:0,del:false};
+let addSt={zi:0,name:'',pri:'high',src:'nl'};
+let drawerMode=null;
+let lastHash='';
+let pollTimer=null;
+
+function st(p){Object.assign(S,p);render();}
+function showToast(msg){if(S._tt)clearTimeout(S._tt);const t=setTimeout(()=>st({toast:null,_tt:null}),2600);st({toast:msg,_tt:t});}
+
+// ── Save / Load ───────────────────────────────────────
+async function saveData(zones,deleted){
+  deleted=deleted??S.deleted;
+  S.zones=zones;S.deleted=deleted;S.sync='saving';render();
+  LS.set(LOCAL_KEY,{zones,_deleted:deleted});
+  try{
+    await fbWrite({zones,_deleted:deleted});
+    lastHash=JSON.stringify(zones);
+    S.sync='synced';S.savedAt=new Date();
+  }catch(e){
+    console.warn('Firebase write failed:',e);
+    S.sync='offline';
+  }
+  render();
+}
+
+async function pollCloud(){
+  try{
+    const remote=await fbRead();
+    if(!remote?.zones)return;
+    const hash=JSON.stringify(remote.zones);
+    if(hash===lastHash)return;
+    lastHash=hash;
+    S.zones=remote.zones;
+    S.deleted=remote._deleted||[];
+    LS.set(LOCAL_KEY,{zones:S.zones,_deleted:S.deleted});
+    S.sync='synced';S.savedAt=new Date();
+    render();
+  }catch{}
+}
+
+function startPoll(){if(pollTimer)clearInterval(pollTimer);pollTimer=setInterval(pollCloud,POLL_MS);}
+
+// ── Actions ───────────────────────────────────────────
+function toggleDone(zi,ii){const z=cp(S.zones);z[zi].items[ii].done=!z[zi].items[ii].done;z[zi].items[ii].updatedAt=Date.now();saveData(z);}
+function cyclePri(zi,ii,e){e.stopPropagation();const z=cp(S.zones);const cur=z[zi].items[ii].priority;const nxt=PRI[(PRI.indexOf(cur)+1)%PRI.length];z[zi].items[ii].priority=nxt;z[zi].items[ii].updatedAt=Date.now();saveData(z);showToast('Marked as '+PCFG[nxt].label+' ✓');}
+function doSaveItem({name,source,priority,tzi,czi,ii}){const z=cp(S.zones);const item={...z[czi].items[ii],name,source,priority,updatedAt:Date.now(),id:z[czi].items[ii].id||uid()};z[czi].items.splice(ii,1);z[tzi].items.push(item);saveData(z);showToast(tzi!==czi?`Moved ✓`:'Updated ✓');}
+function doDelete(zi,ii){const z=cp(S.zones);const did=z[zi].items[ii].id;z[zi].items.splice(ii,1);const del=did?[...new Set([...S.deleted,did])]:S.deleted;saveData(z,del);showToast('Removed ✓');}
+function doAdd({name,source,priority,zi}){const z=cp(S.zones);z[parseInt(zi)].items.push({name,source,priority,done:false,id:uid(),updatedAt:Date.now()});saveData(z);showToast('Added ✓');}
+function doAddZone(name){if(!name.trim())return;const z=cp(S.zones);z.push({zone:name.trim(),items:[]});saveData(z);showToast('Zone added ✓');}
+function saveName(n){if(!n.trim())return;LS.set(NAME_KEY,n.trim());st({myName:n.trim()});showToast(`Hi ${n.trim()}! 👋`);}
+
+// ── Render ────────────────────────────────────────────
+function renderApp(){
+  const zones=S.zones;
+  let tot=0,dn=0,essL=0,impL=0,latL=0;
+  zones.forEach(z=>z.items.forEach(it=>{tot++;if(it.done)dn++;else{if(it.priority==='high')essL++;if(it.priority==='medium')impL++;if(it.priority==='low')latL++;}}));
+  const pct=tot?Math.round(dn/tot*100):0;
+  const scColor={synced:'#22C55E',saving:'#D97706',error:'#DC2626',loading:'#9CA3AF',offline:'#F59E0B'}[S.sync];
+  const scLabel={synced:'● Live',saving:'⟳ Saving…',error:'⚠ Error',loading:'…',offline:'📶 Saved locally'}[S.sync];
+
+  const presHtml=!S.myName
+    ?`<div style="display:flex;flex-direction:column;align-items:flex-end;gap:.3rem">
+        <div style="font-size:.58rem;color:rgba(255,255,255,.6)">Your name?</div>
+        <div style="display:flex;gap:.25rem">
+          <input id="nameInp" maxlength="20" placeholder="e.g. Himadri" onkeydown="if(event.key==='Enter')saveName(this.value)"
+            style="width:85px;padding:.28rem .45rem;border-radius:6px;border:none;font-size:.7rem;outline:none;background:rgba(255,255,255,.2);color:#fff;font-family:inherit"/>
+          <button onclick="saveName(document.getElementById('nameInp').value)"
+            style="padding:.28rem .5rem;border-radius:6px;background:#FF9933;border:none;color:#fff;font-size:.65rem;font-weight:700;cursor:pointer">✓</button>
+        </div>
+      </div>`
+    :`<div style="display:flex;flex-direction:column;align-items:flex-end;gap:.2rem">
+        <div style="font-size:.6rem;color:rgba(255,255,255,.7)">Hi, <b style="color:#fff">${S.myName}</b> 👋</div>
+        <button onclick="LS.del('${NAME_KEY}');st({myName:''})" style="font-size:.52rem;color:rgba(255,255,255,.35);background:none;border:none;cursor:pointer;text-decoration:underline;font-family:inherit">change</button>
+      </div>`;
+
+  const sfDefs=[{id:'all',icon:'◈',label:'All'},{id:'high',icon:'🔴',label:'Essential'},{id:'medium',icon:'🟡',label:'Important'},{id:'low',icon:'⚪',label:'Later'},{id:'india',icon:'🇮🇳',label:'India'},{id:'nl',icon:'🇳🇱',label:'NL'},{id:'done',icon:'✅',label:'Done'}];
+  const sfBtns=sfDefs.map(f=>{const a=S.filter===f.id;return`<button onclick="st({filter:'${f.id}'})" style="flex:1;padding:.28rem .04rem;border-radius:8px;border:1px solid ${a?'#E8650A':'rgba(0,0,0,.08)'};background:${a?'linear-gradient(135deg,#FF9933,#E8650A)':'transparent'};color:${a?'#fff':'#888'};font-size:.57rem;font-weight:${a?700:400};cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.08rem;font-family:inherit"><span style="font-size:.7rem;line-height:1">${f.icon}</span><span>${f.label}</span></button>`;}).join('');
+
+  const zfDefs=[{id:'all',icon:'🏠',label:'All Rooms'},...zones.map((z,i)=>({id:String(i),icon:z.zone.split(' ')[0],label:z.zone.split(' ').slice(1).join(' ')}))];
+  const zfPills=zfDefs.map(f=>{const a=S.zoneFil===f.id;return`<button onclick="st({zoneFil:'${f.id}'})" style="padding:.25rem .55rem;border-radius:99px;border:1px solid ${a?'#0C2D6B':'rgba(12,45,107,.12)'};background:${a?'linear-gradient(135deg,#1A4FA0,#0C2D6B)':'#EEF3FF'};color:${a?'#fff':'#4A6FA0'};font-size:.62rem;font-weight:${a?600:400};cursor:pointer;white-space:nowrap;font-family:inherit;box-shadow:${a?'0 2px 8px rgba(12,45,107,.25)':'none'}">${f.icon} ${f.label}</button>`;}).join('');
+
+  function fItem(it){const f=S.filter;if(f==='all')return true;if(f==='high')return it.priority==='high'&&!it.done;if(f==='medium')return it.priority==='medium'&&!it.done;if(f==='low')return it.priority==='low'&&!it.done;if(f==='india')return it.source==='india'&&!it.done;if(f==='nl')return it.source==='nl'&&!it.done;if(f==='done')return it.done;return true;}
+
+  let zonesHtml='';
+  zones.forEach((zone,zi)=>{
+    if(S.zoneFil!=='all'&&String(zi)!==S.zoneFil)return;
+    const filtered=zone.items.filter(fItem);
+    if(S.filter!=='all'&&filtered.length===0)return;
+    const dZ=zone.items.filter(i=>i.done).length;
+    const iW=zi%2===0;
+    const acc=iW?'#E8650A':'#1A4FA0',bg=iW?'linear-gradient(135deg,#FFFAF3,#FFF7EE)':'linear-gradient(135deg,#F0F5FF,#EBF1FF)';
+    const br=iW?'rgba(232,101,10,.12)':'rgba(12,45,107,.1)',hb=iW?'rgba(232,101,10,.15)':'rgba(12,45,107,.1)';
+    const cBg=iW?'#FFF0E6':'#DDEAFF',cCo=iW?'#C05400':'#1A4FA0',cBr=iW?'#FFD4B0':'#AAC0E8';
+    let itemsH=filtered.map(item=>{
+      const ii=zone.items.indexOf(item),pc=PCFG[item.priority]||PCFG.low,sc=SCFG[item.source]||SCFG.either;
+      return`<div class="irow" onclick="openEdit(${zi},${ii})" style="display:flex;align-items:flex-start;gap:.55rem;background:${ii%2===0?'#FFFFFF':'#F0F6FF'};border-radius:9px;border:1px solid rgba(12,45,107,.07);padding:.5rem .65rem;margin:0 .5rem .22rem;opacity:${item.done?.38:1};animation:fadeUp .2s ease">
+        <div onclick="event.stopPropagation();toggleDone(${zi},${ii})" style="width:20px;height:20px;min-width:20px;border-radius:6px;border:${item.done?'none':'2px solid #D1D5DB'};background:${item.done?'#138808':'transparent'};display:flex;align-items:center;justify-content:center;cursor:pointer;margin-top:2px;flex-shrink:0">
+          ${item.done?'<span style="color:#fff;font-size:.65rem;font-weight:700">✓</span>':''}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.75rem;font-weight:500;text-decoration:${item.done?'line-through':'none'};color:${item.done?'#A89880':'#1A1A2E'};line-height:1.3">${item.name}</div>
+          <div style="display:flex;gap:.25rem;margin-top:.25rem;flex-wrap:wrap;align-items:center">
+            <span style="font-size:.57rem;font-weight:600;padding:.08rem .35rem;border-radius:4px;text-transform:uppercase;letter-spacing:.04em;background:${sc.bg};color:${sc.color}">${sc.label}</span>
+            <span class="pbadge" onclick="event.stopPropagation();cyclePri(${zi},${ii},event)" style="font-size:.57rem;font-weight:700;padding:.08rem .38rem;border-radius:4px;text-transform:uppercase;letter-spacing:.04em;background:${pc.bg};color:${pc.color};border:1.5px dashed ${pc.border}">${pc.dot} ${pc.label} ⇄</span>
+          </div>
+        </div>
+        <div style="color:#D1D5DB;font-size:.9rem;margin-top:3px;flex-shrink:0">›</div>
+      </div>`;
+    }).join('');
+    const emptyH=S.filter==='all'&&zone.items.length===0?`<div style="text-align:center;padding:1rem;margin:0 .5rem .5rem;border:2px dashed #E5E0D8;border-radius:10px;color:#9CA3AF;font-size:.75rem">No items. <span onclick="openAdd(${zi})" style="color:#003DA5;font-weight:600;cursor:pointer">Add one →</span></div>`:'';
+    const addBtnH=S.filter==='all'?`<button onclick="openAdd(${zi})" style="width:calc(100% - 1rem);margin:.15rem .5rem .6rem;padding:.4rem;border:1.5px dashed ${iW?'rgba(232,101,10,.3)':'rgba(12,45,107,.2)'};border-radius:9px;background:transparent;color:${iW?'#C07040':'#4A6FA0'};font-family:inherit;font-size:.7rem;cursor:pointer">＋ Add item to ${zone.zone.split(' ').slice(1).join(' ')}</button>`:'';
+    zonesHtml+=`<div style="margin-bottom:.85rem;border-radius:14px;background:${bg};border:1px solid ${br};overflow:hidden">
+      <div style="display:flex;align-items:center;gap:.45rem;padding:.55rem .75rem .4rem;border-bottom:1px solid ${hb};margin-bottom:.35rem;border-left:3px solid ${acc}">
+        <span style="font-size:.9rem">${zone.zone.split(' ')[0]}</span>
+        <span style="font-family:Cormorant Garamond,serif;font-size:.85rem;font-weight:600;color:${iW?'#8B3A00':'#0C2D6B'};flex:1">${zone.zone.split(' ').slice(1).join(' ')}</span>
+        <span style="font-size:.56rem;color:${cCo};background:${cBg};padding:.08rem .45rem;border-radius:99px;font-weight:600;border:1px solid ${cBr}">${dZ}/${zone.items.length}</span>
+      </div>
+      ${emptyH}${itemsH}${addBtnH}
+    </div>`;
+  });
+
+  // Edit drawer
+  let editDrH='';
+  if(drawerMode==='edit'){
+    const {zi,ii,name,pri,src,tzi,del}=editSt;
+    const priB=PRI.map(p=>{const cfg=PCFG[p],a=pri===p;return`<button onclick="setEPri('${p}')" id="ep_${p}" style="flex:1;padding:.55rem .2rem;border-radius:0;border:none;border-right:${p!=='low'?'1.5px solid #E5E7EB':'none'};background:${a?cfg.bg:'#F9FAFB'};color:${a?cfg.color:'#9CA3AF'};font-family:inherit;font-size:.75rem;font-weight:${a?700:400};cursor:pointer">${cfg.dot} ${cfg.label}</button>`;}).join('');
+    const srcB=Object.entries(SCFG).map(([v,cfg])=>{const a=src===v;return`<button onclick="setESrc('${v}')" id="es_${v}" style="flex:1;padding:.55rem .2rem;border-radius:10px;border:2px solid ${a?'#003DA5':'#E5E7EB'};background:${a?'#EFF6FF':'#F9FAFB'};color:${a?'#003DA5':'#6B7280'};font-family:inherit;font-size:.72rem;font-weight:${a?700:400};cursor:pointer">${cfg.label}</button>`;}).join('');
+    const zOpts=zones.map((z,i)=>`<option value="${i}"${i===tzi?' selected':''}>${z.zone}${i===zi?' (current)':''}</option>`).join('');
+    editDrH=`<div onclick="if(event.target===this)closeDrawer()" style="position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;justify-content:flex-end;background:rgba(0,0,0,.5)">
+      <div class="drawer" onclick="event.stopPropagation()" style="background:#fff;border-radius:20px 20px 0 0;padding:1.2rem 1.2rem 2.5rem;max-height:90vh;overflow-y:auto">
+        <div style="width:36px;height:4px;background:#E5E7EB;border-radius:99px;margin:0 auto 1rem"></div>
+        <div style="font-size:.62rem;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.85rem">Edit Item</div>
+        <div style="margin-bottom:.85rem"><div style="font-size:.64rem;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">Name</div>
+          <input id="eName" value="${name.replace(/"/g,'&quot;')}" oninput="editSt.name=this.value" style="width:100%;padding:.6rem .8rem;border:1.5px solid #E5E7EB;border-radius:10px;font-family:inherit;font-size:.88rem;outline:none;color:#111"/></div>
+        <div style="margin-bottom:.85rem"><div style="font-size:.64rem;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">Priority</div>
+          <div style="display:flex;border-radius:10px;overflow:hidden;border:1.5px solid #E5E7EB">${priB}</div></div>
+        <div style="margin-bottom:.85rem"><div style="font-size:.64rem;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">Where to buy</div>
+          <div style="display:flex;gap:.4rem">${srcB}</div></div>
+        <div style="margin-bottom:1rem"><div style="font-size:.64rem;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">Move to Zone</div>
+          <select id="eTzi" onchange="editSt.tzi=parseInt(this.value)" style="width:100%;padding:.6rem .8rem;border:1.5px solid #E5E7EB;border-radius:10px;font-family:inherit;font-size:.85rem;outline:none;color:#111;background:#F9FAFB">${zOpts}</select></div>
+        ${del?`<div style="background:#FEF2F2;border:1.5px solid #FCA5A5;border-radius:12px;padding:.9rem;margin-bottom:.5rem">
+          <div style="font-size:.82rem;font-weight:600;color:#DC2626;margin-bottom:.65rem">Remove this item?</div>
+          <div style="display:flex;gap:.5rem">
+            <button onclick="editSt.del=false;render()" style="flex:1;padding:.6rem;border-radius:10px;border:1.5px solid #E5E7EB;background:#fff;color:#6B7280;font-family:inherit;font-size:.82rem;cursor:pointer">Keep it</button>
+            <button onclick="doDelete(editSt.zi,editSt.ii);closeDrawer()" style="flex:1;padding:.6rem;border-radius:10px;border:none;background:#DC2626;color:#fff;font-family:inherit;font-size:.82rem;font-weight:700;cursor:pointer">Yes, delete</button>
+          </div></div>`:''}
+        <div style="display:flex;gap:.5rem">
+          <button onclick="editSt.del=true;render()" style="padding:.72rem .9rem;border-radius:10px;border:1.5px solid #FCA5A5;background:#FEF2F2;color:#DC2626;font-family:inherit;font-size:.82rem;font-weight:600;cursor:pointer">🗑</button>
+          <button onclick="closeDrawer()" style="padding:.72rem .9rem;border-radius:10px;border:1.5px solid #E5E7EB;background:transparent;color:#6B7280;font-family:inherit;font-size:.82rem;cursor:pointer">Cancel</button>
+          <button onclick="commitEdit()" style="flex:1;padding:.72rem;border-radius:10px;background:linear-gradient(135deg,#0C2D6B,#1A4FA0);color:#fff;border:none;font-family:inherit;font-size:.88rem;font-weight:700;cursor:pointer">Save</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // Add drawer
+  let addDrH='';
+  if(drawerMode==='add'){
+    const {zi,pri,src}=addSt;
+    const priB=PRI.map(p=>{const cfg=PCFG[p],a=pri===p;return`<button onclick="setAPri('${p}')" id="ap_${p}" style="flex:1;padding:.55rem .2rem;border-radius:0;border:none;border-right:${p!=='low'?'1.5px solid #E5E7EB':'none'};background:${a?cfg.bg:'#F9FAFB'};color:${a?cfg.color:'#9CA3AF'};font-family:inherit;font-size:.75rem;font-weight:${a?700:400};cursor:pointer">${cfg.dot} ${cfg.label}</button>`;}).join('');
+    const srcB=Object.entries(SCFG).map(([v,cfg])=>{const a=src===v;return`<button onclick="setASrc('${v}')" id="as_${v}" style="flex:1;padding:.55rem .2rem;border-radius:10px;border:2px solid ${a?'#003DA5':'#E5E7EB'};background:${a?'#EFF6FF':'#F9FAFB'};color:${a?'#003DA5':'#6B7280'};font-family:inherit;font-size:.72rem;font-weight:${a?700:400};cursor:pointer">${cfg.label}</button>`;}).join('');
+    const zOpts=zones.map((z,i)=>`<option value="${i}"${i===zi?' selected':''}>${z.zone}</option>`).join('');
+    addDrH=`<div onclick="if(event.target===this)closeDrawer()" style="position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;justify-content:flex-end;background:rgba(0,0,0,.5)">
+      <div class="drawer" onclick="event.stopPropagation()" style="background:#fff;border-radius:20px 20px 0 0;padding:1.2rem 1.2rem 2.5rem;max-height:90vh;overflow-y:auto">
+        <div style="width:36px;height:4px;background:#E5E7EB;border-radius:99px;margin:0 auto 1rem"></div>
+        <div style="font-size:.62rem;font-weight:700;color:#9CA3AF;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.85rem">Add New Item</div>
+        <div style="margin-bottom:.85rem"><div style="font-size:.64rem;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">Item Name</div>
+          <input id="aName" placeholder="e.g. Chopper / vegetable cutter" oninput="addSt.name=this.value" onkeydown="if(event.key==='Enter'&&addSt.name.trim())commitAdd()"
+            style="width:100%;padding:.6rem .8rem;border:1.5px solid #E5E7EB;border-radius:10px;font-family:inherit;font-size:.88rem;outline:none;color:#111"/></div>
+        <div style="margin-bottom:.85rem"><div style="font-size:.64rem;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">Zone / Room</div>
+          <select id="aZi" onchange="addSt.zi=parseInt(this.value)" style="width:100%;padding:.6rem .8rem;border:1.5px solid #E5E7EB;border-radius:10px;font-family:inherit;font-size:.85rem;outline:none;color:#111;background:#F9FAFB">${zOpts}</select></div>
+        <div style="margin-bottom:.85rem"><div style="font-size:.64rem;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">Priority</div>
+          <div style="display:flex;border-radius:10px;overflow:hidden;border:1.5px solid #E5E7EB">${priB}</div></div>
+        <div style="margin-bottom:1rem"><div style="font-size:.64rem;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">Where to buy</div>
+          <div style="display:flex;gap:.4rem">${srcB}</div></div>
+        <div style="display:flex;gap:.5rem">
+          <button onclick="closeDrawer()" style="padding:.72rem .9rem;border-radius:10px;border:1.5px solid #E5E7EB;background:transparent;color:#6B7280;font-family:inherit;font-size:.82rem;cursor:pointer">Cancel</button>
+          <button onclick="commitAdd()" style="flex:1;padding:.72rem;border-radius:10px;background:linear-gradient(135deg,#FF9933,#E8650A);color:#fff;border:none;font-family:inherit;font-size:.88rem;font-weight:700;cursor:pointer">Add Item</button>
+        </div>
+      </div>
+    </div>`;
+    setTimeout(()=>{const el=document.getElementById('aName');if(el){el.focus();el.value=addSt.name||'';}},60);
+  }
+
+  document.getElementById('root').innerHTML=`
+<div style="background:linear-gradient(160deg,#FDF6ED 0%,#F0F4FF 100%);min-height:100vh">
+  <div style="background:linear-gradient(135deg,#0C2D6B 0%,#1A4FA0 50%,#E8650A 100%);padding:1.5rem 1.1rem 3.6rem;position:relative;overflow:hidden">
+    <div style="position:absolute;width:240px;height:240px;background:radial-gradient(circle,#FF9933 0%,transparent 70%);top:-90px;right:-50px;opacity:.18"></div>
+    <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#FF9933 33%,#fff 33%,#fff 66%,#138808 66%);opacity:.55"></div>
+    <div style="position:absolute;bottom:0;left:0;right:0;height:2px;background:linear-gradient(90deg,#AE1C28 33%,#fff 33%,#fff 66%,#21468B 66%);opacity:.4"></div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;position:relative">
+      <div>
+        <div style="font-size:.53rem;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,220,160,.9);font-weight:600;margin-bottom:.28rem">Himadri & Nilay · Nederland 🇳🇱</div>
+        <h1 style="font-family:Cormorant Garamond,serif;font-size:1.75rem;color:#fff;line-height:1.1;font-weight:600">🌷 Ons Huis</h1>
+        <div style="font-size:.62rem;color:rgba(255,255,255,.52);margin-top:.22rem;font-style:italic">Our Home — samen beginnen ✨</div>
+      </div>
+      ${presHtml}
+    </div>
+    <div style="position:absolute;bottom:.65rem;right:1.1rem;font-size:.64rem;color:${scColor};font-weight:700;background:rgba(255,255,255,.12);padding:.18rem .6rem;border-radius:99px">${scLabel}</div>
+  </div>
+  <div style="margin:-1.9rem 1.1rem 0;background:#fff;border-radius:14px;padding:.9rem 1.1rem;box-shadow:0 4px 24px rgba(12,45,107,.12);position:relative;z-index:10;border:1px solid rgba(174,198,246,.35)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.45rem">
+      <span style="font-size:.68rem;color:#6B7280;font-weight:500">Overall progress</span>
+      <span style="font-size:.92rem;font-weight:700;color:#003DA5">${pct}%</span>
+    </div>
+    <div style="height:6px;background:#E5E0D8;border-radius:99px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#FF9933,#E8650A,#0C2D6B);border-radius:99px;transition:width .5s ease"></div>
+    </div>
+    <div style="display:flex;gap:.7rem;margin-top:.55rem;flex-wrap:wrap">
+      <span style="font-size:.63rem;color:#6B7280"><strong style="color:#15803D">${dn}</strong> done</span>
+      <span style="font-size:.63rem;color:#6B7280"><strong style="color:#DC2626">${essL}</strong> 🔴 essential</span>
+      <span style="font-size:.63rem;color:#6B7280"><strong style="color:#D97706">${impL}</strong> 🟡 important</span>
+      <span style="font-size:.63rem;color:#6B7280"><strong style="color:#6B7280">${latL}</strong> ⚪ later</span>
+    </div>
+    ${S.savedAt?`<div style="font-size:.58rem;color:#9CA3AF;margin-top:.3rem">Saved ${S.savedAt.toLocaleTimeString()}</div>`:''}
+  </div>
+  <div style="margin:.55rem 1.1rem .4rem;padding:.4rem .65rem;background:linear-gradient(90deg,#FFF5E6,#EEF3FF);border-radius:8px;font-size:.6rem;color:#7A5230;border-left:3px solid #FF9933">
+    💡 Tap item to edit · Tap priority badge to cycle · ＋ to add
+  </div>
+  <div style="display:flex;gap:.45rem;margin:0 1.1rem .85rem">
+    <input id="nzInp" placeholder="＋ New zone (e.g. 🍽️ Dining Room)" onkeydown="if(event.key==='Enter'){doAddZone(this.value);this.value=''}"
+      style="flex:1;padding:.48rem .75rem;border:1px solid #DDD5C8;border-radius:10px;font-size:.72rem;background:#fff;color:#1A1A2E;outline:none;font-family:inherit"/>
+    <button onclick="doAddZone(document.getElementById('nzInp').value);document.getElementById('nzInp').value=''"
+      style="padding:.48rem .85rem;border-radius:10px;background:linear-gradient(135deg,#0C2D6B,#1A4FA0);color:#fff;border:none;font-size:.72rem;font-weight:600;cursor:pointer;font-family:inherit">Add</button>
+  </div>
+  <div style="padding:0 1.1rem 11rem">${zonesHtml}</div>
+  <button onclick="openAdd(0)" style="position:fixed;bottom:5.2rem;right:1.1rem;width:50px;height:50px;border-radius:50%;background:linear-gradient(135deg,#FF9933,#E8650A);border:none;cursor:pointer;font-size:1.4rem;color:#fff;box-shadow:0 4px 18px rgba(232,101,10,.42);display:flex;align-items:center;justify-content:center;z-index:40">＋</button>
+  ${S.toast?`<div style="position:fixed;bottom:8rem;left:50%;background:#111827;color:#fff;padding:.55rem 1.1rem;border-radius:99px;font-size:.78rem;font-weight:500;z-index:100;animation:toastPop 2.5s ease forwards;white-space:nowrap">${S.toast}</div>`:''}
+  <div style="position:fixed;bottom:0;left:0;right:0;z-index:50;background:rgba(255,253,249,.98);box-shadow:0 -4px 20px rgba(12,45,107,.1);padding-bottom:env(safe-area-inset-bottom,0px)">
+    <div style="height:2px;background:linear-gradient(90deg,#FF9933 0%,#FF9933 14%,#fff 14%,#fff 28%,#138808 28%,#138808 42%,#0C2D6B 42%,#0C2D6B 57%,#fff 57%,#fff 71%,#AE1C28 71%,#AE1C28 85%,#21468B 85%)"></div>
+    <div style="padding:.42rem .7rem .18rem;border-bottom:1px solid rgba(0,0,0,.05)">
+      <div style="display:flex;gap:.22rem;justify-content:space-between">${sfBtns}</div>
+    </div>
+    <div style="overflow-x:auto;padding:.28rem .7rem .42rem;scrollbar-width:none;-webkit-overflow-scrolling:touch">
+      <div style="display:inline-flex;gap:.22rem;min-width:max-content;align-items:center">${zfPills}</div>
+    </div>
+  </div>
+  ${editDrH}${addDrH}
+</div>`;
+}
+
+function openEdit(zi,ii){const item=S.zones[zi].items[ii];editSt={zi,ii,name:item.name,pri:item.priority,src:item.source,tzi:zi,del:false};drawerMode='edit';render();}
+function openAdd(zi){addSt={zi,name:'',pri:'high',src:'nl'};drawerMode='add';render();}
+function closeDrawer(){drawerMode=null;render();}
+function setEPri(p){editSt.pri=p;PRI.forEach(x=>{const el=document.getElementById('ep_'+x);if(!el)return;const cfg=PCFG[x],a=x===p;el.style.background=a?cfg.bg:'#F9FAFB';el.style.color=a?cfg.color:'#9CA3AF';el.style.fontWeight=a?700:400;});}
+function setESrc(v){editSt.src=v;Object.keys(SCFG).forEach(x=>{const el=document.getElementById('es_'+x);if(!el)return;const a=x===v;el.style.borderColor=a?'#003DA5':'#E5E7EB';el.style.background=a?'#EFF6FF':'#F9FAFB';el.style.color=a?'#003DA5':'#6B7280';el.style.fontWeight=a?700:400;});}
+function commitEdit(){const name=(document.getElementById('eName')||{}).value?.trim()||editSt.name;const tzi=parseInt((document.getElementById('eTzi')||{}).value??editSt.tzi);if(!name)return;doSaveItem({name,source:editSt.src,priority:editSt.pri,tzi,czi:editSt.zi,ii:editSt.ii});drawerMode=null;}
+function setAPri(p){addSt.pri=p;PRI.forEach(x=>{const el=document.getElementById('ap_'+x);if(!el)return;const cfg=PCFG[x],a=x===p;el.style.background=a?cfg.bg:'#F9FAFB';el.style.color=a?cfg.color:'#9CA3AF';el.style.fontWeight=a?700:400;});}
+function setASrc(v){addSt.src=v;Object.keys(SCFG).forEach(x=>{const el=document.getElementById('as_'+x);if(!el)return;const a=x===v;el.style.borderColor=a?'#003DA5':'#E5E7EB';el.style.background=a?'#EFF6FF':'#F9FAFB';el.style.color=a?'#003DA5':'#6B7280';el.style.fontWeight=a?700:400;});}
+function commitAdd(){const name=(document.getElementById('aName')||{}).value?.trim()||addSt.name;const zi=parseInt((document.getElementById('aZi')||{}).value??addSt.zi);if(!name){document.getElementById('aName')?.focus();return;}doAdd({name,source:addSt.src,priority:addSt.pri,zi});drawerMode=null;}
+
+function render(){
+  if(!S.zones){document.getElementById('root').innerHTML=`<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:1rem"><div style="font-size:2.5rem">🌷</div><div class="spin" style="width:30px;height:30px;border:3px solid #E5E0D8;border-top-color:#E8650A;border-radius:50%"></div><div style="color:#6B7280;font-size:.85rem;font-family:DM Sans,sans-serif">Loading Ons Huis…</div></div>`;return;}
+  renderApp();
+}
+
+// ── Boot ──────────────────────────────────────────────
+async function boot(){
+  render();
+  try{
+    const remote=await fbRead();
+    if(remote?.zones?.length){
+      S.zones=remote.zones;
+      S.deleted=remote._deleted||[];
+      LS.set(LOCAL_KEY,{zones:S.zones,_deleted:S.deleted});
+      lastHash=JSON.stringify(S.zones);
+      S.sync='synced';S.savedAt=new Date();
+    }else{
+      // Firebase empty — push default data
+      const local=LS.get(LOCAL_KEY);
+      S.zones=local?.zones||makeDefault();
+      S.deleted=local?._deleted||[];
+      await fbWrite({zones:S.zones,_deleted:S.deleted});
+      lastHash=JSON.stringify(S.zones);
+      S.sync='synced';S.savedAt=new Date();
+    }
+  }catch(e){
+    console.warn('Firebase load failed, using local:',e);
+    const local=LS.get(LOCAL_KEY);
+    S.zones=local?.zones||makeDefault();
+    S.deleted=local?._deleted||[];
+    S.sync='offline';
+  }
+  render();
+  startPoll();
+}
+
+boot();
+</script>
+</body>
+</html>
